@@ -14,6 +14,8 @@ public class Permissions : IPermissionProvider
     public static readonly Permission ManageMediaProfiles = new("ManageMediaProfiles", "Manage Media Profiles");
     public static readonly Permission ViewMediaOptions = new("ViewMediaOptions", "View Media Options");
 
+    public static readonly Permission ManageAllUsersMedia = new(nameof(ManageAllUsersMedia), "Manage all users media");
+
     private readonly IEnumerable<Permission> _allPermissions =
     [
         ManageMedia,
@@ -23,6 +25,7 @@ public class Permissions : IPermissionProvider
         ManageAttachedMediaFieldsFolder,
         ManageMediaProfiles,
         ViewMediaOptions,
+        ManageAllUsersMedia
     ];
 
     private readonly IEnumerable<Permission> _generalPermissions =
@@ -43,6 +46,7 @@ public class Permissions : IPermissionProvider
                 ManageMediaFolder,
                 ManageMediaProfiles,
                 ViewMediaOptions,
+                ManageAllUsersMedia
             ],
         },
         new PermissionStereotype
@@ -52,6 +56,7 @@ public class Permissions : IPermissionProvider
             [
                 ManageMedia,
                 ManageOwnMedia,
+                ManageAllUsersMedia
             ],
         },
         new PermissionStereotype

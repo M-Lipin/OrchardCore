@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using Fluid;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
@@ -8,19 +10,23 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OrchardCore.Admin;
 using OrchardCore.BackgroundTasks;
 using OrchardCore.ContentManagement;
 using OrchardCore.ContentManagement.Display.ContentDisplay;
 using OrchardCore.ContentManagement.Handlers;
 using OrchardCore.ContentTypes.Editors;
+using OrchardCore.Data;
 using OrchardCore.Data.Migration;
 using OrchardCore.Deployment;
+using OrchardCore.DisplayManagement.Handlers;
 using OrchardCore.DisplayManagement.Liquid.Tags;
 using OrchardCore.Environment.Shell;
 using OrchardCore.FileStorage;
 using OrchardCore.FileStorage.FileSystem;
 using OrchardCore.Indexing;
 using OrchardCore.Liquid;
+using OrchardCore.Media.Controllers;
 using OrchardCore.Media.Core;
 using OrchardCore.Media.Deployment;
 using OrchardCore.Media.Drivers;
@@ -28,6 +34,7 @@ using OrchardCore.Media.Events;
 using OrchardCore.Media.Fields;
 using OrchardCore.Media.Filters;
 using OrchardCore.Media.Handlers;
+using OrchardCore.Media.Indexes;
 using OrchardCore.Media.Indexing;
 using OrchardCore.Media.Liquid;
 using OrchardCore.Media.Processing;
@@ -39,6 +46,7 @@ using OrchardCore.Media.TagHelpers;
 using OrchardCore.Media.ViewModels;
 using OrchardCore.Modules;
 using OrchardCore.Modules.FileProviders;
+using OrchardCore.Mvc.Core.Utilities;
 using OrchardCore.Navigation;
 using OrchardCore.Recipes;
 using OrchardCore.ResourceManagement;
@@ -48,8 +56,6 @@ using SixLabors.ImageSharp.Web.Caching;
 using SixLabors.ImageSharp.Web.DependencyInjection;
 using SixLabors.ImageSharp.Web.Middleware;
 using SixLabors.ImageSharp.Web.Providers;
-using System;
-using System.IO;
 
 namespace OrchardCore.Media
 {
@@ -57,17 +63,20 @@ namespace OrchardCore.Media
     {
         private const string ImageSharpCacheFolder = "is-cache";
 
+        private readonly AdminOptions _adminOptions;
         private readonly ShellSettings _shellSettings;
 
-        public Startup(ShellSettings shellSettings)
+        public Startup(
+            IOptions<AdminOptions> adminOptions,
+            ShellSettings shellSettings
+        )
         {
+            _adminOptions = adminOptions.Value;
             _shellSettings = shellSettings;
         }
 
         public override void ConfigureServices(IServiceCollection services)
         {
-            services.AddHttpClient();
-
             services.AddSingleton<IAnchorTag, MediaAnchorTag>();
 
             // Resized media and remote media caches cleanups.
@@ -171,6 +180,9 @@ namespace OrchardCore.Media
             services.AddScoped<IContentHandler, AttachedMediaFieldContentHandler>();
             services.AddScoped<IModularTenantEvents, TempDirCleanerService>();
             services.AddDataMigration<Migrations>();
+            services.AddIndexProvider<MediaInfoIndexProvider>();
+            services.AddScoped<IContentFieldIndexHandler, MediaFieldIndexHandler>();
+            services.AddMediaFileTextProvider<PdfMediaFileTextProvider>(".pdf");
             services.AddRecipeExecutionStep<MediaStep>();
 
             // MIME types
@@ -191,6 +203,8 @@ namespace OrchardCore.Media
             services.AddScoped<IUserAssetFolderNameProvider, DefaultUserAssetFolderNameProvider>();
             services.AddSingleton<IChunkFileUploadService, ChunkFileUploadService>();
             services.AddSingleton<IBackgroundTask, ChunkFileUploadBackgroundTask>();
+
+            services.AddScoped<IMediaInfoService, MediaInfoService>();
         }
 
         public override void Configure(IApplicationBuilder app, IEndpointRouteBuilder routes, IServiceProvider serviceProvider)
@@ -292,7 +306,7 @@ namespace OrchardCore.Media
     <td>class, alt</td>
   </tr>
 </table>";
-                d.Categories = ["HTML Content", "Media"];
+                d.Categories = ["HTML Content", "Media" ];
             });
 
             services.AddShortcode<AssetUrlShortcodeProvider>("asset_url", d =>

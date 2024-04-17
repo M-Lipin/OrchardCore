@@ -17,7 +17,6 @@ using OrchardCore.Media.ViewModels;
 
 namespace OrchardCore.Media.Controllers
 {
-    [Admin("Media/{action}", "Media.{action}")]
     public class AdminController : Controller
     {
         private static readonly char[] _invalidFolderNameCharacters = ['\\', '/'];
@@ -32,6 +31,7 @@ namespace OrchardCore.Media.Controllers
         private readonly MediaOptions _mediaOptions;
         private readonly IUserAssetFolderNameProvider _userAssetFolderNameProvider;
         private readonly IChunkFileUploadService _chunkFileUploadService;
+        private readonly IMediaInfoService _mediaInfoService;
 
         public AdminController(
             IMediaFileStore mediaFileStore,
@@ -42,8 +42,8 @@ namespace OrchardCore.Media.Controllers
             ILogger<AdminController> logger,
             IStringLocalizer<AdminController> stringLocalizer,
             IUserAssetFolderNameProvider userAssetFolderNameProvider,
-            IChunkFileUploadService chunkFileUploadService
-            )
+            IChunkFileUploadService chunkFileUploadService,
+            IMediaInfoService mediaInfoService)
         {
             _mediaFileStore = mediaFileStore;
             _mediaNameNormalizerService = mediaNameNormalizerService;
@@ -54,6 +54,7 @@ namespace OrchardCore.Media.Controllers
             S = stringLocalizer;
             _userAssetFolderNameProvider = userAssetFolderNameProvider;
             _chunkFileUploadService = chunkFileUploadService;
+            _mediaInfoService = mediaInfoService;
         }
 
         [Admin("Media", "Media.Index")]
@@ -206,6 +207,11 @@ namespace OrchardCore.Media.Controllers
                             var mediaFile = await _mediaFileStore.GetFileInfoAsync(mediaFilePath);
 
                             result.Add(CreateFileResult(mediaFile));
+
+                            if (User.Identity?.Name != null)
+                            {
+                                await _mediaInfoService.AddUserMediaInfoAsync(User.Identity.Name, mediaFilePath);
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -249,6 +255,11 @@ namespace OrchardCore.Media.Controllers
                 return StatusCode(StatusCodes.Status403Forbidden, S["Cannot delete path because it is not a directory"]);
             }
 
+            if (!await _mediaInfoService.TryDeleteMediaInfoAsync(User, path))
+            {
+                return NotFound();
+            }
+
             if (await _mediaFileStore.TryDeleteDirectoryAsync(path) == false)
             {
                 return NotFound();
@@ -271,6 +282,11 @@ namespace OrchardCore.Media.Controllers
                 return NotFound();
             }
 
+            if (!await _mediaInfoService.TryDeleteMediaInfoAsync(User, path))
+            {
+                return NotFound();
+            }
+
             if (!await _mediaFileStore.TryDeleteFileAsync(path))
             {
                 return NotFound();
@@ -289,6 +305,11 @@ namespace OrchardCore.Media.Controllers
             }
 
             if (string.IsNullOrEmpty(oldPath) || string.IsNullOrEmpty(newPath))
+            {
+                return NotFound();
+            }
+
+            if (!await _mediaInfoService.IsUserFileOwnerAsync(User.Identity.Name, oldPath))
             {
                 return NotFound();
             }
@@ -338,6 +359,11 @@ namespace OrchardCore.Media.Controllers
 
             foreach (var path in paths)
             {
+                if (!await _mediaInfoService.TryDeleteMediaInfoAsync(User, path))
+                {
+                    continue;
+                }
+
                 if (!await _mediaFileStore.TryDeleteFileAsync(path))
                 {
                     return NotFound();
@@ -427,6 +453,8 @@ namespace OrchardCore.Media.Controllers
             {
                 return BadRequest(S["Cannot create folder because a file already exists with the same name"]);
             }
+
+            await _mediaInfoService.AddUserMediaInfoAsync(User.Identity.Name, newPath);
 
             await _mediaFileStore.TryCreateDirectoryAsync(newPath);
 
