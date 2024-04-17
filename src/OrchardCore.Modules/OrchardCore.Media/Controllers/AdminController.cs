@@ -10,18 +10,17 @@ using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using OrchardCore.Admin;
 using OrchardCore.FileStorage;
 using OrchardCore.Media.Services;
 using OrchardCore.Media.ViewModels;
 
 namespace OrchardCore.Media.Controllers
 {
-    [Admin("Media/{action}", "Media.{action}")]
     public class AdminController : Controller
     {
-        private static readonly char[] _invalidFolderNameCharacters = ['\\', '/'];
-        private static readonly char[] _extensionSeperator = [' ', ','];
+        private static readonly char[] InvalidFolderNameCharacters = new char[] { '\\', '/' };
+        private static readonly char[] ExtensionSeperator = new char[] { ' ', ',' };
+        private static readonly HashSet<string> EmptySet = new();
 
         private readonly IMediaFileStore _mediaFileStore;
         private readonly IMediaNameNormalizerService _mediaNameNormalizerService;
@@ -32,6 +31,7 @@ namespace OrchardCore.Media.Controllers
         private readonly MediaOptions _mediaOptions;
         private readonly IUserAssetFolderNameProvider _userAssetFolderNameProvider;
         private readonly IChunkFileUploadService _chunkFileUploadService;
+        private readonly IMediaInfoService _mediaInfoService;
 
         public AdminController(
             IMediaFileStore mediaFileStore,
@@ -42,8 +42,8 @@ namespace OrchardCore.Media.Controllers
             ILogger<AdminController> logger,
             IStringLocalizer<AdminController> stringLocalizer,
             IUserAssetFolderNameProvider userAssetFolderNameProvider,
-            IChunkFileUploadService chunkFileUploadService
-            )
+            IChunkFileUploadService chunkFileUploadService,
+            IMediaInfoService mediaInfoService)
         {
             _mediaFileStore = mediaFileStore;
             _mediaNameNormalizerService = mediaNameNormalizerService;
@@ -54,9 +54,9 @@ namespace OrchardCore.Media.Controllers
             S = stringLocalizer;
             _userAssetFolderNameProvider = userAssetFolderNameProvider;
             _chunkFileUploadService = chunkFileUploadService;
+            _mediaInfoService = mediaInfoService;
         }
 
-        [Admin("Media", "Media.Index")]
         public async Task<IActionResult> Index()
         {
             if (!await _authorizationService.AuthorizeAsync(User, Permissions.ManageMedia))
@@ -206,6 +206,11 @@ namespace OrchardCore.Media.Controllers
                             var mediaFile = await _mediaFileStore.GetFileInfoAsync(mediaFilePath);
 
                             result.Add(CreateFileResult(mediaFile));
+
+                            if (User.Identity != null)
+                            {
+                                await _mediaInfoService.AddUserMediaInfoAsync(User.Identity.Name, mediaFilePath);
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -249,6 +254,11 @@ namespace OrchardCore.Media.Controllers
                 return StatusCode(StatusCodes.Status403Forbidden, S["Cannot delete path because it is not a directory"]);
             }
 
+            if (!await _mediaInfoService.TryDeleteMediaInfoAsync(User, path))
+            {
+                return NotFound();
+            }
+
             if (await _mediaFileStore.TryDeleteDirectoryAsync(path) == false)
             {
                 return NotFound();
@@ -271,6 +281,11 @@ namespace OrchardCore.Media.Controllers
                 return NotFound();
             }
 
+            if (!await _mediaInfoService.TryDeleteMediaInfoAsync(User, path))
+            {
+                return NotFound();
+            }
+
             if (!await _mediaFileStore.TryDeleteFileAsync(path))
             {
                 return NotFound();
@@ -289,6 +304,11 @@ namespace OrchardCore.Media.Controllers
             }
 
             if (string.IsNullOrEmpty(oldPath) || string.IsNullOrEmpty(newPath))
+            {
+                return NotFound();
+            }
+
+            if (!await _mediaInfoService.IsUserFileOwnerAsync(User.Identity.Name, oldPath))
             {
                 return NotFound();
             }
@@ -338,6 +358,11 @@ namespace OrchardCore.Media.Controllers
 
             foreach (var path in paths)
             {
+                if (!await _mediaInfoService.TryDeleteMediaInfoAsync(User, path))
+                {
+                    continue;
+                }
+
                 if (!await _mediaFileStore.TryDeleteFileAsync(path))
                 {
                     return NotFound();
@@ -403,7 +428,7 @@ namespace OrchardCore.Media.Controllers
 
             name = _mediaNameNormalizerService.NormalizeFolderName(name);
 
-            if (_invalidFolderNameCharacters.Any(invalidChar => name.Contains(invalidChar)))
+            if (InvalidFolderNameCharacters.Any(invalidChar => name.Contains(invalidChar)))
             {
                 return BadRequest(S["Cannot create folder because the folder name contains invalid characters"]);
             }
@@ -427,6 +452,8 @@ namespace OrchardCore.Media.Controllers
             {
                 return BadRequest(S["Cannot create folder because a file already exists with the same name"]);
             }
+
+            await _mediaInfoService.AddUserMediaInfoAsync(User.Identity.Name, newPath);
 
             await _mediaFileStore.TryCreateDirectoryAsync(newPath);
 
@@ -473,7 +500,7 @@ namespace OrchardCore.Media.Controllers
         {
             if (!string.IsNullOrWhiteSpace(exts))
             {
-                var extensions = exts.Split(_extensionSeperator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var extensions = exts.Split(ExtensionSeperator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
                 var requestedExtensions = _mediaOptions.AllowedFileExtensions
                     .Intersect(extensions)
@@ -491,7 +518,7 @@ namespace OrchardCore.Media.Controllers
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
             }
 
-            return [];
+            return EmptySet;
         }
     }
 }

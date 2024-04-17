@@ -4,7 +4,9 @@ using OrchardCore.Data.Migration;
 using OrchardCore.Environment.Shell;
 using OrchardCore.Environment.Shell.Descriptor.Models;
 using OrchardCore.Media.Fields;
+using OrchardCore.Media.Indexes;
 using OrchardCore.Media.Settings;
+using YesSql.Sql;
 
 namespace OrchardCore.Media
 {
@@ -36,6 +38,25 @@ namespace OrchardCore.Media
         private async Task UpgradeAsync()
         {
             await _contentDefinitionManager.MigrateFieldSettingsAsync<MediaField, MediaFieldSettings>();
+        }
+
+        public async Task<int> UpdateFrom1Async()
+        {
+            await SchemaBuilder.CreateMapIndexTableAsync<MediaInfoIndex>(table => table
+                .Column<string>(nameof(MediaInfoIndex.UserId), column => column.WithLength(26))
+                .Column<string>(nameof(MediaInfoIndex.Path))
+            );
+
+            await SchemaBuilder.AlterIndexTableAsync<MediaInfoIndex>(table => table
+                .CreateIndex(
+                    $"IDX_{nameof(MediaInfoIndex)}_DocumentId",
+                    "DocumentId",
+                    nameof(MediaInfoIndex.UserId),
+                    nameof(MediaInfoIndex.Path)
+                )
+            );
+
+            return 2;
         }
     }
 }
